@@ -63,17 +63,6 @@
     (should (null pi-coding-agent--message-start-marker))
     (should (null pi-coding-agent--streaming-marker))))
 
-(ert-deftest pi-coding-agent-test-clear-chat-buffer-resets-usage ()
-  "Clearing chat buffer resets pi-coding-agent--last-usage to nil."
-  (with-temp-buffer
-    (pi-coding-agent-chat-mode)
-    ;; Set usage as if messages were received
-    (setq pi-coding-agent--last-usage '(:input 5000 :output 1000 :cacheRead 500 :cacheWrite 100))
-    ;; Clear the buffer
-    (pi-coding-agent--clear-chat-buffer)
-    ;; Usage should be reset
-    (should (null pi-coding-agent--last-usage))))
-
 (ert-deftest pi-coding-agent-test-clear-chat-buffer-resets-session-state ()
   "Clearing chat buffer resets all session-specific state."
   (with-temp-buffer
@@ -81,7 +70,6 @@
     ;; Set various session state as if we had an active session
     (setq pi-coding-agent--session-name "My Named Session"
           pi-coding-agent--cached-stats '(:messages 10 :cost 0.05)
-          pi-coding-agent--last-usage '(:input 5000 :output 1000)
           pi-coding-agent--assistant-header-shown t
           pi-coding-agent--followup-queue '("pending message")
           pi-coding-agent--local-user-message "user text"
@@ -108,7 +96,6 @@
     ;; All session state should be reset
     (should (null pi-coding-agent--session-name))
     (should (null pi-coding-agent--cached-stats))
-    (should (null pi-coding-agent--last-usage))
     (should (null pi-coding-agent--assistant-header-shown))
     (should (null pi-coding-agent--followup-queue))
     (should (null pi-coding-agent--local-user-message))
@@ -1271,6 +1258,34 @@ Regression: when called from input buffer, state is nil → \"unknown\"."
         (kill-buffer buf)))
     (should completing-read-called)
     (should (equal captured-initial "opus"))))
+
+;;; sourceInfo normalization
+
+(ert-deftest pi-coding-agent-test-normalize-command-extracts-source-info ()
+  "Normalizer lifts sourceInfo.scope and sourceInfo.path to top level."
+  (let* ((raw (list :name "fix" :source "prompt"
+                    :sourceInfo '(:scope "user" :path "/home/me/.pi/fix.md")))
+         (norm (pi-coding-agent--normalize-command raw)))
+    (should (equal (plist-get norm :location) "user"))
+    (should (equal (plist-get norm :path) "/home/me/.pi/fix.md"))
+    (should (equal (plist-get norm :name) "fix"))
+    (should-not (plist-get norm :sourceInfo))))
+
+(ert-deftest pi-coding-agent-test-normalize-command-without-source-info ()
+  "Normalizer leaves commands unchanged when sourceInfo is absent."
+  (let* ((raw '(:name "ext" :source "extension"))
+         (norm (pi-coding-agent--normalize-command raw)))
+    (should (equal (plist-get norm :name) "ext"))
+    (should-not (plist-get norm :location))
+    (should-not (plist-get norm :path))))
+
+(ert-deftest pi-coding-agent-test-normalize-command-partial-source-info ()
+  "Normalizer handles sourceInfo with scope but no path."
+  (let* ((raw '(:name "s" :source "skill"
+                :sourceInfo (:scope "project")))
+         (norm (pi-coding-agent--normalize-command raw)))
+    (should (equal (plist-get norm :location) "project"))
+    (should-not (plist-get norm :path))))
 
 (provide 'pi-coding-agent-menu-test)
 ;;; pi-coding-agent-menu-test.el ends here

@@ -78,6 +78,19 @@ but %s is loaded.
 
 ;;;; Slash Commands via RPC
 
+(defun pi-coding-agent--normalize-command (cmd)
+  "Normalize a command plist from the RPC wire format.
+Lift `sourceInfo.scope' to `:location' and `sourceInfo.path' to
+`:path' when present, then drop the raw `:sourceInfo' key.
+Returns CMD (modified in place)."
+  (when-let* ((info (plist-get cmd :sourceInfo)))
+    (when-let* ((scope (plist-get info :scope)))
+      (plist-put cmd :location scope))
+    (when-let* ((path (plist-get info :path)))
+      (plist-put cmd :path path))
+    (cl-remf cmd :sourceInfo))
+  cmd)
+
 (defun pi-coding-agent--fetch-commands (proc callback)
   "Fetch available commands via RPC, call CALLBACK with result.
 PROC is the pi process.  CALLBACK receives the command list on success."
@@ -86,8 +99,8 @@ PROC is the pi process.  CALLBACK receives the command list on success."
       (when (eq (plist-get response :success) t)
         (let* ((data (plist-get response :data))
                (commands-vec (plist-get data :commands))
-               ;; Convert vector to list
-               (commands (append commands-vec nil)))
+               (commands (mapcar #'pi-coding-agent--normalize-command
+                                 (append commands-vec nil))))
           (funcall callback commands))))))
 
 ;;;; Session Management
@@ -260,7 +273,6 @@ Call this when starting a new session to ensure no stale state persists."
         pi-coding-agent--tool-block-order-counter 0
         pi-coding-agent--activity-phase "idle")
   ;; Use accessors for cross-module state
-  (pi-coding-agent--set-last-usage nil)
   (pi-coding-agent--clear-followup-queue)
   (pi-coding-agent--set-aborted nil)
   (pi-coding-agent--set-message-start-marker nil)
@@ -295,12 +307,9 @@ Note: When called from async callbacks, pass CHAT-BUF explicitly."
                        (let* ((messages (plist-get (plist-get response :data) :messages))
                               (count (if (vectorp messages) (length messages) 0)))
                          (pi-coding-agent--display-session-history messages chat-buf)
-                         ;; Restore context usage from last assistant message
-                         ;; (ensures context % displays correctly after resume/fork)
+                         ;; Refresh header after loading history (resume/fork).
                          (when (buffer-live-p chat-buf)
                            (with-current-buffer chat-buf
-                             (pi-coding-agent--set-last-usage
-                              (pi-coding-agent--extract-last-usage messages))
                              (pi-coding-agent--refresh-header)))
                          (when callback
                            (funcall callback count))))))))

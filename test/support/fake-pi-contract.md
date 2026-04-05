@@ -159,7 +159,9 @@ Required shape:
   - `name`
   - `source`
 
-`description`, `location`, and `path` may be omitted unless a test needs them.
+`description` may be omitted unless a test needs it.  Command
+metadata uses `sourceInfo` with `scope` and `path` sub-fields.
+The Emacs normalizer lifts these to top-level `:location` and `:path`.
 
 ### `prompt` happy path
 
